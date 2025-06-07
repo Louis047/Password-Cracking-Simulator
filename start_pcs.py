@@ -17,6 +17,7 @@ class PCSLauncher:
         self.running = False
         # Get the project root directory
         self.project_root = os.path.dirname(os.path.abspath(__file__))
+        self.target_workers = 2  # Default number of workers
     
     def start_master(self):
         """Start the master node"""
@@ -192,6 +193,68 @@ class PCSLauncher:
         finally:
             self.stop_all()
             logger.info("🏁 Demo completed")
+
+    def scale_workers(self, target_count):
+        """Scale workers to target count"""
+        current_count = len(self.worker_processes)
+        
+        if target_count > current_count:
+            # Add workers
+            for i in range(current_count, target_count):
+                if self.start_worker(i + 1):
+                    self.logger.info(f"✅ Worker {i + 1} started successfully")
+                else:
+                    self.logger.error(f"❌ Failed to start Worker {i + 1}")
+        elif target_count < current_count:
+            # Remove workers
+            workers_to_remove = current_count - target_count
+            for _ in range(workers_to_remove):
+                if self.worker_processes:
+                    worker_id, process = self.worker_processes.popitem()
+                    try:
+                        process.terminate()
+                        process.wait(timeout=5)
+                        self.logger.info(f"✅ Worker {worker_id} stopped successfully")
+                    except Exception as e:
+                        self.logger.error(f"❌ Error stopping Worker {worker_id}: {e}")
+        
+        self.target_workers = target_count
+        return len(self.worker_processes)
+    
+    def get_worker_count(self):
+        """Get current number of active workers"""
+        return len(self.worker_processes)
+    
+    def add_custom_password(self, password):
+        """Add a custom password to crack"""
+        try:
+            response = requests.post(
+                f"{self.master_url}/add_custom_password",
+                json={"password": password},
+                timeout=5
+            )
+            return response.json()
+        except Exception as e:
+            self.logger.error(f"Error adding custom password: {e}")
+            return {"status": "failure", "reason": str(e)}
+    
+    def clear_results(self):
+        """Clear all results"""
+        try:
+            response = requests.post(f"{self.master_url}/clear_results", timeout=5)
+            return response.json()
+        except Exception as e:
+            self.logger.error(f"Error clearing results: {e}")
+            return {"status": "failure", "reason": str(e)}
+    
+    def reset_tasks(self):
+        """Reset to default tasks"""
+        try:
+            response = requests.post(f"{self.master_url}/reset_tasks", timeout=5)
+            return response.json()
+        except Exception as e:
+            self.logger.error(f"Error resetting tasks: {e}")
+            return {"status": "failure", "reason": str(e)}
 
 def main():
     print("Password Cracking Simulator (PCS) Launcher")

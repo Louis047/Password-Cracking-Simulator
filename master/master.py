@@ -188,6 +188,78 @@ def index():
         "endpoints": ["/status", "/results", "/get_task", "/submit_result"]
     })
 
+# New endpoints for GUI support
+@app.route("/add_custom_password", methods=["POST"])
+def add_custom_password():
+    try:
+        data = request.json
+        password = data.get("password")
+        if not password:
+            return jsonify({"status": "failure", "reason": "password required"})
+        
+        # Hash the password and add to target hashes
+        password_hash = hashlib.sha256(password.encode('utf-8')).hexdigest()
+        target_hashes.append(password_hash)
+        
+        # Create tasks for this new password
+        create_tasks_for_hash(password_hash)
+        
+        logger.info(f"Added custom password for cracking (hash: {password_hash[:16]}...)")
+        return jsonify({"status": "success", "hash": password_hash})
+    except Exception as e:
+        logger.error(f"Error in add_custom_password: {e}")
+        return jsonify({"status": "failure", "reason": str(e)})
+
+@app.route("/clear_results", methods=["POST"])
+def clear_results():
+    try:
+        global result_list
+        result_list = []
+        logger.info("Results cleared")
+        return jsonify({"status": "success"})
+    except Exception as e:
+        logger.error(f"Error in clear_results: {e}")
+        return jsonify({"status": "failure", "reason": str(e)})
+
+@app.route("/reset_tasks", methods=["POST"])
+def reset_tasks():
+    try:
+        global task_queue, active_tasks, target_hashes
+        with queue_lock:
+            # Clear existing tasks
+            while not task_queue.empty():
+                task_queue.get()
+            active_tasks.clear()
+            target_hashes.clear()
+        
+        # Reload default tasks
+        prepare_tasks()
+        
+        logger.info("Tasks reset to default")
+        return jsonify({"status": "success"})
+    except Exception as e:
+        logger.error(f"Error in reset_tasks: {e}")
+        return jsonify({"status": "failure", "reason": str(e)})
+
+def create_tasks_for_hash(target_hash, wordlist_path="data/password.txt"):
+    """Create tasks for a specific hash"""
+    try:
+        with open(wordlist_path, 'r', encoding='utf-8') as file:
+            passwords = [line.strip() for line in file.readlines() if line.strip()]
+    except FileNotFoundError:
+        passwords = ["password123", "admin", "123456", "qwerty", "letmein", "welcome"]
+    
+    task_id = len(active_tasks) + task_queue.qsize()
+    for i in range(0, len(passwords), TASK_BATCH_SIZE):
+        batch = passwords[i:i + TASK_BATCH_SIZE]
+        task = {
+            "task_id": task_id,
+            "target_hash": target_hash,
+            "candidates": batch
+        }
+        task_queue.put(task)
+        task_id += 1
+
 if __name__ == "__main__":
     try:
         logger.info("Initializing Password Cracking Simulator Master Node")
