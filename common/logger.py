@@ -1,18 +1,26 @@
 import logging
 import sys
-from .config import LOG_LEVEL, LOG_FORMAT
+import os
+
+# Handle both relative and absolute imports
+try:
+    from .config import LOG_LEVEL, LOG_FORMAT
+except ImportError:
+    # Fallback for when running as script
+    sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
+    from config import LOG_LEVEL, LOG_FORMAT
 
 def get_logger(name):
     """Get a configured logger instance"""
     logger = logging.getLogger(name)
     
     if not logger.handlers:
-        # Console handler
+        # Console handler with UTF-8 encoding
         console_handler = logging.StreamHandler(sys.stdout)
         console_handler.setFormatter(logging.Formatter(LOG_FORMAT))
         
-        # File handler
-        file_handler = logging.FileHandler('pcs.log')
+        # File handler with UTF-8 encoding
+        file_handler = logging.FileHandler('pcs.log', encoding='utf-8')
         file_handler.setFormatter(logging.Formatter(LOG_FORMAT))
         
         logger.addHandler(console_handler)

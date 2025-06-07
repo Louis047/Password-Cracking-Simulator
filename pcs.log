@@ -1,0 +1,84 @@
+2025-06-07 18:06:18,774 - PCS_Launcher - INFO - ==================================================
+2025-06-07 18:06:18,775 - PCS_Launcher - INFO - Starting Master Node...
+2025-06-07 18:22:42,525 - PCS_Launcher - INFO - Starting Password Cracking Simulator Demo
+2025-06-07 18:22:42,525 - PCS_Launcher - INFO - ==================================================
+2025-06-07 18:22:42,525 - PCS_Launcher - INFO - Starting Master Node...
+2025-06-07 18:22:49,646 - PCS_Launcher - ERROR - Master Node failed to start
+2025-06-07 18:22:49,647 - PCS_Launcher - ERROR - Failed to start master node - aborting demo
+2025-06-07 18:22:49,647 - PCS_Launcher - INFO - Stopping all processes...
+2025-06-07 18:22:49,647 - PCS_Launcher - INFO - Master Node stopped successfully
+2025-06-07 18:22:49,665 - PCS_Launcher - INFO - Demo completed
+2025-06-07 18:27:48,036 - PCS_Launcher - INFO - Starting Password Cracking Simulator Demo
+2025-06-07 18:27:48,037 - PCS_Launcher - INFO - ==================================================
+2025-06-07 18:27:48,037 - PCS_Launcher - INFO - Starting Master Node...
+2025-06-07 18:27:53,041 - PCS_Launcher - ERROR - Master process terminated unexpectedly
+2025-06-07 18:27:53,042 - PCS_Launcher - ERROR - Master stdout: 
+2025-06-07 18:27:53,042 - PCS_Launcher - ERROR - Master stderr: Traceback (most recent call last):
+  File "C:\Users\Lone\Documents\Academic Projects\Distributed Systems\PCS\master\master.py", line 8, in <module>
+    from common.logger import get_logger
+ModuleNotFoundError: No module named 'common'
+
+2025-06-07 18:27:53,042 - PCS_Launcher - ERROR - Failed to start master node - aborting demo
+2025-06-07 18:27:53,042 - PCS_Launcher - INFO - Stopping all processes...
+2025-06-07 18:27:53,043 - PCS_Launcher - INFO - Master Node stopped successfully
+2025-06-07 18:27:53,043 - PCS_Launcher - INFO - Demo completed
+2025-06-07 22:42:12,497 - PCS_Launcher - INFO - 🚀 Starting Password Cracking Simulator Demo
+2025-06-07 22:42:12,498 - PCS_Launcher - INFO - ==================================================
+2025-06-07 22:42:12,498 - PCS_Launcher - INFO - Starting Master Node...
+2025-06-07 22:42:12,832 - Master - INFO - Initializing Password Cracking Simulator Master Node
+2025-06-07 22:42:12,832 - Master - INFO - Starting on 0.0.0.0:5000
+2025-06-07 22:42:12,838 - Master - INFO - Loaded 2997 tasks into the queue
+2025-06-07 22:42:12,838 - Master - INFO - Master node ready to accept connections
+2025-06-07 22:42:19,573 - PCS_Launcher - INFO - ✅ Master Node started successfully
+2025-06-07 22:42:19,573 - PCS_Launcher - INFO - Starting 2 Worker Nodes...
+2025-06-07 22:42:19,579 - PCS_Launcher - INFO - ✅ Worker 1 started successfully
+2025-06-07 22:42:20,583 - PCS_Launcher - INFO - ✅ Worker 2 started successfully
+2025-06-07 22:42:21,585 - PCS_Launcher - INFO - 🔍 Starting system monitoring...
+2025-06-07 22:42:21,586 - PCS_Launcher - INFO - 
+🎮 Demo is now running! Press Ctrl+C to stop
+2025-06-07 22:42:21,586 - PCS_Launcher - INFO - 📊 Web interface available at: http://localhost:5000/status
+2025-06-07 22:42:21,587 - PCS_Launcher - INFO - ==================================================
+2025-06-07 22:42:22,214 - Master - INFO - Worker worker_ASS-SUS_866530a1 registered
+2025-06-07 22:42:23,323 - Master - INFO - Worker worker_ASS-SUS_98a0d5f4 registered
+2025-06-07 22:42:23,623 - PCS_Launcher - INFO - 📊 System Status - Workers: 2, Pending Tasks: 2997, Active Tasks: 0, Completed Results: 0
+2025-06-07 22:42:26,302 - Master - INFO - Password cracked for task 0: password123
+2025-06-07 22:42:27,452 - Master - INFO - No password found for task 1
+2025-06-07 22:42:30,410 - Master - INFO - No password found for task 2
+2025-06-07 22:42:31,547 - Master - INFO - No password found for task 3
+2025-06-07 22:42:34,519 - Master - INFO - No password found for task 4
+2025-06-07 22:42:35,644 - Master - INFO - No password found for task 5
+2025-06-07 22:42:37,703 - PCS_Launcher - INFO - 📊 System Status - Workers: 2, Pending Tasks: 2990, Active Tasks: 1, Completed Results: 1
+2025-06-07 22:42:38,656 - Master - INFO - No password found for task 6
+2025-06-07 22:42:39,736 - Master - INFO - No password found for task 7
+2025-06-07 22:42:39,738 - PCS_Launcher - INFO - 🎯 Cracked Passwords:
+2025-06-07 22:42:39,738 - PCS_Launcher - INFO -    Task 0: 'password123'
+2025-06-07 22:42:42,757 - Master - INFO - No password found for task 8
+2025-06-07 22:42:43,805 - Master - INFO - No password found for task 9
+2025-06-07 22:42:46,909 - Master - INFO - No password found for task 10
+2025-06-07 22:42:47,875 - Master - INFO - No password found for task 11
+2025-06-07 22:42:51,021 - Master - INFO - No password found for task 12
+2025-06-07 22:42:51,760 - PCS_Launcher - INFO - 📊 System Status - Workers: 2, Pending Tasks: 2983, Active Tasks: 1, Completed Results: 1
+2025-06-07 22:42:51,955 - Master - INFO - No password found for task 13
+2025-06-07 22:42:53,818 - PCS_Launcher - INFO - 🎯 Cracked Passwords:
+2025-06-07 22:42:53,818 - PCS_Launcher - INFO -    Task 0: 'password123'
+2025-06-07 22:42:55,124 - Master - INFO - No password found for task 14
+2025-06-07 22:42:56,076 - Master - INFO - No password found for task 15
+2025-06-07 22:43:01,293 - Master - INFO - No password found for task 16
+2025-06-07 22:43:02,225 - Master - INFO - No password found for task 17
+2025-06-07 22:43:10,873 - PCS_Launcher - WARNING - Monitoring error: HTTPConnectionPool(host='localhost', port=5000): Read timed out. (read timeout=5)
+2025-06-07 22:43:27,954 - PCS_Launcher - WARNING - Monitoring error: HTTPConnectionPool(host='localhost', port=5000): Read timed out. (read timeout=5)
+2025-06-07 22:43:45,022 - PCS_Launcher - WARNING - Monitoring error: HTTPConnectionPool(host='localhost', port=5000): Read timed out. (read timeout=5)
+2025-06-07 22:44:02,080 - PCS_Launcher - WARNING - Monitoring error: HTTPConnectionPool(host='localhost', port=5000): Read timed out. (read timeout=5)
+2025-06-07 22:44:19,152 - PCS_Launcher - WARNING - Monitoring error: HTTPConnectionPool(host='localhost', port=5000): Read timed out. (read timeout=5)
+2025-06-07 22:44:36,217 - PCS_Launcher - WARNING - Monitoring error: HTTPConnectionPool(host='localhost', port=5000): Read timed out. (read timeout=5)
+2025-06-07 22:44:53,300 - PCS_Launcher - WARNING - Monitoring error: HTTPConnectionPool(host='localhost', port=5000): Read timed out. (read timeout=5)
+2025-06-07 22:45:10,357 - PCS_Launcher - WARNING - Monitoring error: HTTPConnectionPool(host='localhost', port=5000): Read timed out. (read timeout=5)
+2025-06-07 22:45:27,402 - PCS_Launcher - WARNING - Monitoring error: HTTPConnectionPool(host='localhost', port=5000): Read timed out. (read timeout=5)
+2025-06-07 22:45:44,454 - PCS_Launcher - WARNING - Monitoring error: HTTPConnectionPool(host='localhost', port=5000): Read timed out. (read timeout=5)
+2025-06-07 22:45:50,237 - PCS_Launcher - INFO - 
+👋 Demo interrupted by user
+2025-06-07 22:45:50,238 - PCS_Launcher - INFO - 🛑 Stopping all processes...
+2025-06-07 22:45:50,242 - PCS_Launcher - INFO - ✅ Worker 1 stopped successfully
+2025-06-07 22:45:50,247 - PCS_Launcher - INFO - ✅ Worker 2 stopped successfully
+2025-06-07 22:45:50,251 - PCS_Launcher - INFO - ✅ Master Node stopped successfully
+2025-06-07 22:45:50,251 - PCS_Launcher - INFO - 🏁 Demo completed

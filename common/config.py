@@ -1,6 +1,6 @@
 # Master Configuration
 MASTER_URL = 'http://localhost:5000'
-MASTER_HOST = '0.0.0.0'
+MASTER_HOST = 'localhost'  # Changed from '0.0.0.0' to 'localhost'
 MASTER_PORT = 5000
 
 # Task Configuration

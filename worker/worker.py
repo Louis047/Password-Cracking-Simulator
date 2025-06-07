@@ -3,6 +3,12 @@ import requests
 import time
 import uuid
 import socket
+import sys
+import os
+
+# Add parent directory to Python path for imports
+sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
+
 from common.config import MASTER_URL, TASK_FETCH_INTERVAL
 
 class PasswordCrackingWorker:
@@ -39,7 +45,7 @@ class PasswordCrackingWorker:
     
     def hash_password(self, password):
         """Returns SHA-256 hash of the password."""
-        return hashlib.sha256(password.encode()).hexdigest()
+        return hashlib.sha256(password.encode('utf-8')).hexdigest()
     
     def crack_password(self, task):
         """Try all candidates to find the correct password for the hash."""

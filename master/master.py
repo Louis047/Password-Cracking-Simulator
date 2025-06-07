@@ -4,8 +4,13 @@ from queue import Queue
 from threading import Lock
 import os
 import time
+import sys
+
+# Add parent directory to Python path for imports
+sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
+
 from common.logger import get_logger
-from common.config import TASK_BATCH_SIZE, TASK_TIMEOUT
+from common.config import TASK_BATCH_SIZE, TASK_TIMEOUT, MASTER_HOST, MASTER_PORT
 
 app = Flask(__name__)
 logger = get_logger("Master")
@@ -20,22 +25,30 @@ active_tasks = {}    # task_id: {worker_id, timestamp, task_data}
 # Worker registration and health monitoring
 @app.route("/register_worker", methods=["POST"])
 def register_worker():
-    data = request.json
-    worker_id = data.get("worker_id")
-    if worker_id:
-        active_workers[worker_id] = time.time()
-        logger.info(f"Worker {worker_id} registered")
-        return jsonify({"status": "success"})
-    return jsonify({"status": "failure"})
+    try:
+        data = request.json
+        worker_id = data.get("worker_id")
+        if worker_id:
+            active_workers[worker_id] = time.time()
+            logger.info(f"Worker {worker_id} registered")
+            return jsonify({"status": "success"})
+        return jsonify({"status": "failure", "reason": "worker_id required"})
+    except Exception as e:
+        logger.error(f"Error in register_worker: {e}")
+        return jsonify({"status": "failure", "reason": str(e)})
 
 @app.route("/heartbeat", methods=["POST"])
 def heartbeat():
-    data = request.json
-    worker_id = data.get("worker_id")
-    if worker_id:
-        active_workers[worker_id] = time.time()
-        return jsonify({"status": "success"})
-    return jsonify({"status": "failure"})
+    try:
+        data = request.json
+        worker_id = data.get("worker_id")
+        if worker_id:
+            active_workers[worker_id] = time.time()
+            return jsonify({"status": "success"})
+        return jsonify({"status": "failure", "reason": "worker_id required"})
+    except Exception as e:
+        logger.error(f"Error in heartbeat: {e}")
+        return jsonify({"status": "failure", "reason": str(e)})
 
 # Task timeout and retry logic
 def check_task_timeouts():
@@ -51,13 +64,16 @@ def check_task_timeouts():
         task_queue.put(task_info['task_data'])  # Re-queue the task
         logger.warning(f"Task {task_id} timed out, re-queued")
 
-# Load hashes and prepare tasks (existing logic with improvements)
+# Load hashes and prepare tasks (with proper encoding)
 def load_hashes(filepath="data/hashes.txt"):
     try:
-        with open(filepath, 'r') as file:
+        with open(filepath, 'r', encoding='utf-8') as file:
             return [line.strip() for line in file.readlines() if line.strip()]
     except FileNotFoundError:
         logger.warning(f"Hash file {filepath} not found, creating sample data")
+        return []
+    except UnicodeDecodeError as e:
+        logger.error(f"Unicode decode error reading {filepath}: {e}")
         return []
 
 def prepare_tasks(wordlist_path="data/password.txt"):
@@ -66,14 +82,17 @@ def prepare_tasks(wordlist_path="data/password.txt"):
     
     if not target_hashes:
         sample_passwords = ["password123", "admin", "123456", "qwerty"]
-        target_hashes = [hashlib.sha256(pwd.encode()).hexdigest() for pwd in sample_passwords]
+        target_hashes = [hashlib.sha256(pwd.encode('utf-8')).hexdigest() for pwd in sample_passwords]
         logger.info("Created sample target hashes")
     
     try:
-        with open(wordlist_path, 'r') as file:
+        with open(wordlist_path, 'r', encoding='utf-8') as file:
             passwords = [line.strip() for line in file.readlines() if line.strip()]
     except FileNotFoundError:
         logger.warning(f"Password file {wordlist_path} not found, creating sample data")
+        passwords = ["password123", "admin", "123456", "qwerty", "letmein", "welcome"]
+    except UnicodeDecodeError as e:
+        logger.error(f"Unicode decode error reading {wordlist_path}: {e}")
         passwords = ["password123", "admin", "123456", "qwerty", "letmein", "welcome"]
     
     task_id = 0
@@ -112,37 +131,76 @@ def get_task():
 
 @app.route("/submit_result", methods=["POST"])
 def submit_result():
-    data = request.json
-    task_id = data.get("task_id")
-    cracked_password = data.get("cracked_password")
-    
-    if task_id is not None:
-        # Remove from active tasks
-        if task_id in active_tasks:
-            del active_tasks[task_id]
+    try:
+        data = request.json
+        task_id = data.get("task_id")
+        cracked_password = data.get("cracked_password")
         
-        if cracked_password:
-            result_list.append((task_id, cracked_password))
-            logger.info(f"Password cracked for task {task_id}: {cracked_password}")
-        else:
-            logger.info(f"No password found for task {task_id}")
-        return jsonify({"status": "success"})
-    
-    return jsonify({"status": "failure", "reason": "invalid input"})
+        if task_id is not None:
+            # Remove from active tasks
+            if task_id in active_tasks:
+                del active_tasks[task_id]
+            
+            if cracked_password:
+                result_list.append((task_id, cracked_password))
+                logger.info(f"Password cracked for task {task_id}: {cracked_password}")
+            else:
+                logger.info(f"No password found for task {task_id}")
+            return jsonify({"status": "success"})
+        
+        return jsonify({"status": "failure", "reason": "invalid input"})
+    except Exception as e:
+        logger.error(f"Error in submit_result: {e}")
+        return jsonify({"status": "failure", "reason": str(e)})
 
 @app.route("/results", methods=["GET"])
 def get_results():
-    return jsonify({"results": result_list})
+    try:
+        return jsonify({"results": result_list})
+    except Exception as e:
+        logger.error(f"Error in get_results: {e}")
+        return jsonify({"results": [], "error": str(e)})
 
 @app.route("/status", methods=["GET"])
 def get_status():
+    try:
+        return jsonify({
+            "active_workers": len(active_workers),
+            "pending_tasks": task_queue.qsize(),
+            "active_tasks": len(active_tasks),
+            "completed_results": len(result_list)
+        })
+    except Exception as e:
+        logger.error(f"Error in get_status: {e}")
+        return jsonify({
+            "active_workers": 0,
+            "pending_tasks": 0,
+            "active_tasks": 0,
+            "completed_results": 0,
+            "error": str(e)
+        })
+
+@app.route("/", methods=["GET"])
+def index():
     return jsonify({
-        "active_workers": len(active_workers),
-        "pending_tasks": task_queue.qsize(),
-        "active_tasks": len(active_tasks),
-        "completed_results": len(result_list)
+        "message": "Password Cracking Simulator Master Node",
+        "status": "running",
+        "endpoints": ["/status", "/results", "/get_task", "/submit_result"]
     })
 
 if __name__ == "__main__":
-    prepare_tasks()
-    app.run(host='0.0.0.0', port=5000, debug=True)
+    try:
+        logger.info("Initializing Password Cracking Simulator Master Node")
+        logger.info(f"Starting on {MASTER_HOST}:{MASTER_PORT}")
+        
+        # Prepare tasks
+        prepare_tasks()
+        
+        logger.info("Master node ready to accept connections")
+        
+        # Start Flask app
+        app.run(host=MASTER_HOST, port=MASTER_PORT, debug=False, threaded=True)
+        
+    except Exception as e:
+        logger.error(f"Failed to start master node: {e}")
+        sys.exit(1)
