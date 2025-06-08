@@ -1,6 +1,9 @@
 # <p style= "text-align: center">🔐 Password Cracking Simulator (PCS) </p>
 
-A lightweight and educational simulator that demonstrates how password cracking can be accelerated using distributed systems principles. Built using Python and Flask, PCS uses a master-worker architecture to emulate real-world password cracking workflows—**ethically and safely** using only synthetic data. One can also say, a **distributed approach** in cracking passwords 
+A lightweight and simplified simulator that demonstrates how password cracking can be accelerated using distributed systems principles. Built using Python and Flask, PCS uses a master-worker architecture to emulate real-world password cracking workflows—**ethically and safely** using only synthetic data. One can also say, a **distributed approach** in cracking passwords 
+
+> [!NOTE]
+> This project is meant for educational purposes **ONLY** and should never be/intended to be used for unethical purposes.
 
 ## Project Goals
 
@@ -24,19 +27,19 @@ A lightweight and educational simulator that demonstrates how password cracking 
 ## Architecture
 ![Architecture Design](/assets/Architecture.jpg)
 
-## Getting Started
+### Getting Started
 1. Fork the repository
 2. Clone your fork: `git clone https://github.com/yourusername/PCS.git`
 3. Install dependencies: `pip install -r requirements.txt`
 4. Run tests: `python -m pytest test/`
 
-## Development Guidelines
+### Development Guidelines
 - Follow PEP 8 style guidelines
 - Add tests for new features
 - Update documentation as needed
 - Use meaningful commit messages
 
-## Running the Application
+### Running the Application
 - Demo mode: `python start_pcs.py 2`
 - GUI mode: `python gui_dashboard.py`
 - Web dashboard: `python web_dashboard.py`
