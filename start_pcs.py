@@ -102,6 +102,25 @@ class PCSLauncher:
             except Exception as e:
                 logger.error(f"Failed to start worker {i+1}: {e}")
     
+    def start_worker(self, worker_id):
+        """Start a single worker node"""
+        try:
+            worker_script = os.path.join(self.project_root, "worker", "worker.py")
+            worker_process = subprocess.Popen(
+                [sys.executable, worker_script],
+                stdout=subprocess.PIPE,
+                stderr=subprocess.PIPE,
+                text=True,
+                cwd=self.project_root,  # Set working directory
+                env=dict(os.environ, PYTHONPATH=self.project_root)  # Add to Python path
+            )
+            self.worker_processes.append(worker_process)
+            logger.info(f"✅ Worker {worker_id} started successfully")
+            return True
+        except Exception as e:
+            logger.error(f"Failed to start worker {worker_id}: {e}")
+            return False
+    
     def monitor_system(self):
         """Monitor system status and display logs"""
         logger.info("🔍 Starting system monitoring...")
@@ -202,21 +221,21 @@ class PCSLauncher:
             # Add workers
             for i in range(current_count, target_count):
                 if self.start_worker(i + 1):
-                    self.logger.info(f"✅ Worker {i + 1} started successfully")
+                    logger.info(f"✅ Worker {i + 1} started successfully")  # Fixed: self.logger -> logger
                 else:
-                    self.logger.error(f"❌ Failed to start Worker {i + 1}")
+                    logger.error(f"❌ Failed to start Worker {i + 1}")  # Fixed: self.logger -> logger
         elif target_count < current_count:
             # Remove workers
             workers_to_remove = current_count - target_count
             for _ in range(workers_to_remove):
                 if self.worker_processes:
-                    worker_id, process = self.worker_processes.popitem()
+                    worker = self.worker_processes.pop()  # Fixed: popitem() -> pop()
                     try:
-                        process.terminate()
-                        process.wait(timeout=5)
-                        self.logger.info(f"✅ Worker {worker_id} stopped successfully")
+                        worker.terminate()
+                        worker.wait(timeout=5)
+                        logger.info(f"✅ Worker stopped successfully")  # Fixed: self.logger -> logger
                     except Exception as e:
-                        self.logger.error(f"❌ Error stopping Worker {worker_id}: {e}")
+                        logger.error(f"❌ Error stopping Worker: {e}")  # Fixed: self.logger -> logger
         
         self.target_workers = target_count
         return len(self.worker_processes)
@@ -229,32 +248,54 @@ class PCSLauncher:
         """Add a custom password to crack"""
         try:
             response = requests.post(
-                f"{self.master_url}/add_custom_password",
+                f"{MASTER_URL}/add_custom_password",  # Fixed: self.master_url -> MASTER_URL
                 json={"password": password},
                 timeout=5
             )
             return response.json()
         except Exception as e:
-            self.logger.error(f"Error adding custom password: {e}")
+            logger.error(f"Error adding custom password: {e}")  # Fixed: self.logger -> logger
             return {"status": "failure", "reason": str(e)}
     
     def clear_results(self):
         """Clear all results"""
         try:
-            response = requests.post(f"{self.master_url}/clear_results", timeout=5)
+            response = requests.post(f"{MASTER_URL}/clear_results", timeout=5)  # Fixed: self.master_url -> MASTER_URL
             return response.json()
         except Exception as e:
-            self.logger.error(f"Error clearing results: {e}")
+            logger.error(f"Error clearing results: {e}")  # Fixed: self.logger -> logger
             return {"status": "failure", "reason": str(e)}
     
     def reset_tasks(self):
         """Reset to default tasks"""
         try:
-            response = requests.post(f"{self.master_url}/reset_tasks", timeout=5)
+            response = requests.post(f"{MASTER_URL}/reset_tasks", timeout=5)
             return response.json()
         except Exception as e:
-            self.logger.error(f"Error resetting tasks: {e}")
+            logger.error(f"Error resetting tasks: {e}")
             return {"status": "failure", "reason": str(e)}
+    
+    def get_status(self):
+        """Get system status from master"""
+        try:
+            response = requests.get(f"{MASTER_URL}/status", timeout=5)
+            if response.status_code == 200:
+                return response.json()
+            return None
+        except Exception as e:
+            logger.error(f"Error getting status: {e}")
+            return None
+    
+    def get_results(self):
+        """Get cracked password results from master"""
+        try:
+            response = requests.get(f"{MASTER_URL}/results", timeout=5)
+            if response.status_code == 200:
+                return response.json()
+            return None
+        except Exception as e:
+            logger.error(f"Error getting results: {e}")
+            return None
 
 def main():
     print("Password Cracking Simulator (PCS) Launcher")
