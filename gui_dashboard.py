@@ -74,6 +74,119 @@ class ModernPCSGUI:
                        background='#3c3c3c',
                        borderwidth=1,
                        relief='solid')
+        
+        # Add worker stats tracking
+        self.worker_stats_frame = None
+        self.worker_stats_tree = None
+        self.setup_worker_stats_panel()
+    
+    def setup_worker_stats_panel(self):
+        """Setup worker statistics panel"""
+        # Worker Statistics Panel
+        worker_frame = ttk.LabelFrame(self.main_frame, text="Worker Statistics", padding=10)
+        worker_frame.grid(row=2, column=0, columnspan=2, sticky="ew", pady=5)
+        
+        # Create treeview for worker stats
+        columns = ('Worker ID', 'Status', 'Tasks', 'Cracked', 'Avg Time', 'Last Seen')
+        self.worker_stats_tree = ttk.Treeview(worker_frame, columns=columns, show='headings', height=6)
+        
+        # Configure columns
+        for col in columns:
+            self.worker_stats_tree.heading(col, text=col)
+            self.worker_stats_tree.column(col, width=120)
+        
+        # Add scrollbar
+        worker_scrollbar = ttk.Scrollbar(worker_frame, orient="vertical", command=self.worker_stats_tree.yview)
+        self.worker_stats_tree.configure(yscrollcommand=worker_scrollbar.set)
+        
+        self.worker_stats_tree.grid(row=0, column=0, sticky="nsew")
+        worker_scrollbar.grid(row=0, column=1, sticky="ns")
+        
+        worker_frame.columnconfigure(0, weight=1)
+    
+    def monitor_system(self):
+        """Enhanced monitoring with worker stats"""
+        while not self.stop_monitoring and self.is_running:
+            try:
+                # Get status
+                status = self.launcher.get_status()
+                if status:
+                    self.root.after(0, self.update_status, status)
+                
+                # Get results
+                results = self.launcher.get_results()
+                if results:
+                    self.root.after(0, self.update_results, results)
+                
+                # Get worker stats
+                worker_stats = self.launcher.get_worker_stats()
+                if worker_stats:
+                    self.root.after(0, self.update_worker_stats, worker_stats)
+                
+                time.sleep(2)  # Update every 2 seconds
+            
+            except Exception as e:
+                self.root.after(0, self.log_message, f"⚠️ Monitoring error: {e}")
+                time.sleep(5)  # Wait longer on error
+    
+    def update_worker_stats(self, stats_data):
+        """Update worker statistics display"""
+        try:
+            # Clear existing items
+            for item in self.worker_stats_tree.get_children():
+                self.worker_stats_tree.delete(item)
+            
+            # Add current worker stats
+            for worker in stats_data.get('workers', []):
+                worker_id_short = worker['worker_id'][-12:]  # Show last 12 chars
+                status = worker['status']
+                tasks = worker['tasks_completed']
+                cracked = worker['passwords_cracked']
+                avg_time = f"{worker['avg_processing_time']:.2f}s" if worker['avg_processing_time'] > 0 else "N/A"
+                last_seen = time.strftime("%H:%M:%S", time.localtime(worker['last_heartbeat']))
+                
+                # Color code based on status
+                tags = ('active',) if status == 'active' else ('inactive',)
+                
+                self.worker_stats_tree.insert('', 'end', 
+                    values=(worker_id_short, status, tasks, cracked, avg_time, last_seen),
+                    tags=tags)
+            
+            # Configure tags for coloring
+            self.worker_stats_tree.tag_configure('active', foreground='green')
+            self.worker_stats_tree.tag_configure('inactive', foreground='red')
+            
+        except Exception as e:
+            self.log_message(f"❌ Error updating worker stats: {e}")
+    
+    def update_results(self, results):
+        """Enhanced results display with worker info"""
+        try:
+            current_text = self.results_text.get(1.0, tk.END)
+            new_results = []
+            
+            for result in results.get('results', []):
+                if len(result) >= 4:  # New format with worker info
+                    task_id, password, worker_id, proc_time = result
+                    worker_short = worker_id[-8:] if worker_id else "unknown"
+                    result_line = f"Task {task_id}: '{password}' (Worker: {worker_short}, Time: {proc_time:.2f}s)\n"
+                else:  # Old format
+                    task_id, password = result[:2]
+                    result_line = f"Task {task_id}: '{password}'\n"
+                
+                if result_line not in current_text:
+                    new_results.append(result_line)
+            
+            if new_results:
+                self.results_text.insert(tk.END, ''.join(new_results))
+                self.results_text.see(tk.END)
+                
+                # Log new results
+                for result_line in new_results:
+                    self.log_message(f"🎯 {result_line.strip()}")
+        
+        except Exception as e:
+            self.log_message(f"❌ Error updating results: {e}")
     
     def create_widgets(self):
         """Create and layout GUI widgets"""

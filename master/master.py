@@ -19,8 +19,9 @@ task_queue = Queue()
 result_list = []
 queue_lock = Lock()
 target_hashes = []
-active_workers = {}  # worker_id: last_heartbeat
+active_workers = {}  # worker_id: {last_heartbeat, tasks_completed, passwords_cracked, status}
 active_tasks = {}    # task_id: {worker_id, timestamp, task_data}
+worker_stats = {}    # worker_id: {total_tasks, total_cracked, avg_time}
 
 # Worker registration and health monitoring
 @app.route("/register_worker", methods=["POST"])
@@ -29,12 +30,24 @@ def register_worker():
         data = request.json
         worker_id = data.get("worker_id")
         if worker_id:
-            active_workers[worker_id] = time.time()
-            logger.info(f"Worker {worker_id} registered")
+            active_workers[worker_id] = {
+                'last_heartbeat': time.time(),
+                'tasks_completed': 0,
+                'passwords_cracked': 0,
+                'status': 'active',
+                'registered_at': time.time()
+            }
+            worker_stats[worker_id] = {
+                'total_tasks': 0,
+                'total_cracked': 0,
+                'total_time': 0,
+                'avg_time': 0
+            }
+            logger.info(f"👋 Worker {worker_id} registered and ready")
             return jsonify({"status": "success"})
         return jsonify({"status": "failure", "reason": "worker_id required"})
     except Exception as e:
-        logger.error(f"Error in register_worker: {e}")
+        logger.error(f"❌ Error in register_worker: {e}")
         return jsonify({"status": "failure", "reason": str(e)})
 
 @app.route("/heartbeat", methods=["POST"])
@@ -43,26 +56,49 @@ def heartbeat():
         data = request.json
         worker_id = data.get("worker_id")
         if worker_id:
-            active_workers[worker_id] = time.time()
+            if worker_id in active_workers:
+                active_workers[worker_id].update({
+                    'last_heartbeat': time.time(),
+                    'tasks_completed': data.get('tasks_completed', 0),
+                    'passwords_cracked': data.get('passwords_cracked', 0),
+                    'status': data.get('status', 'active')
+                })
             return jsonify({"status": "success"})
         return jsonify({"status": "failure", "reason": "worker_id required"})
     except Exception as e:
-        logger.error(f"Error in heartbeat: {e}")
+        logger.error(f"❌ Error in heartbeat: {e}")
         return jsonify({"status": "failure", "reason": str(e)})
 
-# Task timeout and retry logic
+# Enhanced task timeout and retry logic
 def check_task_timeouts():
     current_time = time.time()
     expired_tasks = []
+    failed_workers = []
     
+    # Check for expired tasks
     for task_id, task_info in active_tasks.items():
         if current_time - task_info['timestamp'] > TASK_TIMEOUT:
             expired_tasks.append(task_id)
+            worker_id = task_info['worker_id']
+            if worker_id not in failed_workers:
+                failed_workers.append(worker_id)
     
+    # Handle expired tasks
     for task_id in expired_tasks:
         task_info = active_tasks.pop(task_id)
         task_queue.put(task_info['task_data'])  # Re-queue the task
-        logger.warning(f"Task {task_id} timed out, re-queued")
+        logger.warning(f"⏰ Task {task_id} timed out from worker {task_info['worker_id']}, re-queued")
+    
+    # Check for failed workers (no heartbeat for 2 minutes)
+    dead_workers = []
+    for worker_id, worker_info in active_workers.items():
+        if current_time - worker_info['last_heartbeat'] > 120:  # 2 minutes
+            dead_workers.append(worker_id)
+    
+    # Remove dead workers
+    for worker_id in dead_workers:
+        del active_workers[worker_id]
+        logger.error(f"💀 Worker {worker_id} declared dead (no heartbeat for 2+ minutes)")
 
 # Load hashes and prepare tasks (with proper encoding)
 def load_hashes(filepath="data/hashes.txt"):
@@ -135,23 +171,56 @@ def submit_result():
         data = request.json
         task_id = data.get("task_id")
         cracked_password = data.get("cracked_password")
+        worker_id = data.get("worker_id")
+        processing_time = data.get("processing_time", 0)
         
         if task_id is not None:
             # Remove from active tasks
             if task_id in active_tasks:
                 del active_tasks[task_id]
             
+            # Update worker stats
+            if worker_id and worker_id in worker_stats:
+                stats = worker_stats[worker_id]
+                stats['total_tasks'] += 1
+                stats['total_time'] += processing_time
+                stats['avg_time'] = stats['total_time'] / stats['total_tasks']
+                if cracked_password:
+                    stats['total_cracked'] += 1
+            
             if cracked_password:
-                result_list.append((task_id, cracked_password))
-                logger.info(f"Password cracked for task {task_id}: {cracked_password}")
+                result_list.append((task_id, cracked_password, worker_id, processing_time))
+                logger.info(f"🎯 Password cracked! Task {task_id}: '{cracked_password}' by {worker_id} in {processing_time:.2f}s")
             else:
-                logger.info(f"No password found for task {task_id}")
+                logger.debug(f"📝 Task {task_id} completed by {worker_id} (no match found)")
             return jsonify({"status": "success"})
         
         return jsonify({"status": "failure", "reason": "invalid input"})
     except Exception as e:
-        logger.error(f"Error in submit_result: {e}")
+        logger.error(f"❌ Error in submit_result: {e}")
         return jsonify({"status": "failure", "reason": str(e)})
+
+@app.route("/worker_stats", methods=["GET"])
+def get_worker_stats():
+    """Get detailed worker statistics"""
+    try:
+        stats = []
+        for worker_id, worker_info in active_workers.items():
+            worker_stat = worker_stats.get(worker_id, {})
+            stats.append({
+                'worker_id': worker_id,
+                'status': worker_info.get('status', 'unknown'),
+                'last_heartbeat': worker_info.get('last_heartbeat', 0),
+                'tasks_completed': worker_info.get('tasks_completed', 0),
+                'passwords_cracked': worker_info.get('passwords_cracked', 0),
+                'total_tasks': worker_stat.get('total_tasks', 0),
+                'total_cracked': worker_stat.get('total_cracked', 0),
+                'avg_processing_time': worker_stat.get('avg_time', 0)
+            })
+        return jsonify({"workers": stats})
+    except Exception as e:
+        logger.error(f"❌ Error in get_worker_stats: {e}")
+        return jsonify({"workers": [], "error": str(e)})
 
 @app.route("/results", methods=["GET"])
 def get_results():

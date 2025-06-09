@@ -286,6 +286,17 @@ class PCSLauncher:
             logger.error(f"Error getting status: {e}")
             return None
     
+    def get_worker_stats(self):
+        """Get detailed worker statistics from master"""
+        try:
+            response = requests.get(f"{MASTER_URL}/worker_stats", timeout=5)
+            if response.status_code == 200:
+                return response.json()
+            return None
+        except Exception as e:
+            logger.error(f"Error getting worker stats: {e}")
+            return None
+    
     def get_results(self):
         """Get cracked password results from master"""
         try:
