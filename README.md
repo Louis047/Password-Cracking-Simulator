@@ -1,16 +1,9 @@
-# <p style= "text-align: center">🔐 Password Cracking Simulator (PCS) </p>
+# 🔐 Password Cracking Simulator (PCS)
 
-A lightweight and simplified simulator that demonstrates how password cracking can be accelerated using distributed systems principles. Built using Python and Flask, PCS uses a master-worker architecture to emulate real-world password cracking workflows—**ethically and safely** using only synthetic data. One can also say, a **distributed approach** in cracking passwords 
+A lightweight and simplified simulator that demonstrates how password cracking can be accelerated using distributed systems principles. Built using Python and Flask, PCS uses a master-worker architecture to emulate real-world password cracking workflows—**ethically and safely** using only synthetic data.
 
 > [!NOTE]
-> This project is meant for educational purposes **ONLY** and should never be/intended to be used for unethical purposes.
-
-## Project Goals
-
-- Demonstrate **task distribution** in distributed systems
-- Showcase **worker coordination and resilience**
-- Promote **security awareness** around password vulnerabilities
-- Provide an **educational and ethical** tool to simulate password cracking
+> This project is meant for educational purposes **ONLY** and should never be used for unethical purposes.
 
 ## Addressing Current System Issues
 
@@ -24,22 +17,33 @@ A lightweight and simplified simulator that demonstrates how password cracking c
 | No Teaching Focus | Designed for performance, not pedagogy | Designed for student-friendly understanding and experimentation |
 | Hidden Fault Behavior | Failures handled internally with no explanation | PCS (extensible) can simulate node failures and retries |
 
-## Architecture
-![Architecture Design](/assets/Architecture.jpg)
+## 🎯 Project Goals
 
-### Getting Started
-1. Fork the repository
-2. Clone your fork: `git clone https://github.com/yourusername/PCS.git`
-3. Install dependencies: `pip install -r requirements.txt`
-4. Run tests: `python -m pytest test/`
+- Demonstrate **task distribution** in distributed systems
+- Showcase **worker coordination and resilience**
+- Promote **security awareness** around password vulnerabilities
+- Provide an **educational and ethical** tool to simulate password cracking
 
-### Development Guidelines
-- Follow PEP 8 style guidelines
-- Add tests for new features
-- Update documentation as needed
-- Use meaningful commit messages
+## 🏗️ Architecture
 
-### Running the Application
-- Demo mode: `python start_pcs.py 2`
-- GUI mode: `python gui_dashboard.py`
-- Web dashboard: `python web_dashboard.py`
+![Architecture Design](./assets/Architecture.jpg)
+
+The system follows a master-worker distributed architecture:
+- **Master Node**: Coordinates tasks, manages worker health, distributes workload
+- **Worker Nodes**: Process password cracking tasks, report results and status
+- **GUI Dashboard**: Real-time monitoring and control interface
+
+## 🚀 Quick Start
+
+### Prerequisites
+- Python 3.7+
+- pip package manager
+
+### Installation
+
+1. **Clone the repository**
+   ```bash
+   git clone https://github.com/yourusername/PCS.git
+   cd PCS
+   pip install -r requirements.txt
+   ```
