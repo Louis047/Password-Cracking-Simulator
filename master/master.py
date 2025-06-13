@@ -204,50 +204,60 @@ def submit_result():
 def get_worker_stats():
     """Get detailed worker statistics"""
     try:
-        stats = []
+        workers_list = []
+        current_time = time.time()
+        
         for worker_id, worker_info in active_workers.items():
-            worker_stat = worker_stats.get(worker_id, {})
-            stats.append({
+            worker_data = {
                 'worker_id': worker_id,
-                'status': worker_info.get('status', 'unknown'),
-                'last_heartbeat': worker_info.get('last_heartbeat', 0),
-                'tasks_completed': worker_info.get('tasks_completed', 0),
-                'passwords_cracked': worker_info.get('passwords_cracked', 0),
-                'total_tasks': worker_stat.get('total_tasks', 0),
-                'total_cracked': worker_stat.get('total_cracked', 0),
-                'avg_processing_time': worker_stat.get('avg_time', 0)
-            })
-        return jsonify({"workers": stats})
+                'status': worker_info['status'],
+                'tasks_completed': worker_info['tasks_completed'],
+                'passwords_cracked': worker_info['passwords_cracked'],
+                'last_heartbeat': worker_info['last_heartbeat'],
+                'avg_processing_time': worker_stats.get(worker_id, {}).get('avg_time', 0)
+            }
+            workers_list.append(worker_data)
+        
+        return jsonify({"workers": workers_list})
+    
     except Exception as e:
-        logger.error(f"❌ Error in get_worker_stats: {e}")
-        return jsonify({"workers": [], "error": str(e)})
+        logger.error(f"❌ Error getting worker stats: {e}")
+        return jsonify({"workers": []})
 
-@app.route("/results", methods=["GET"])
-def get_results():
-    try:
-        return jsonify({"results": result_list})
-    except Exception as e:
-        logger.error(f"Error in get_results: {e}")
-        return jsonify({"results": [], "error": str(e)})
-
+# Add to the existing status endpoint
 @app.route("/status", methods=["GET"])
 def get_status():
+    """Enhanced status endpoint with more metrics"""
     try:
-        return jsonify({
-            "active_workers": len(active_workers),
-            "pending_tasks": task_queue.qsize(),
+        current_time = time.time()
+        
+        # Count active workers (heartbeat within last 60 seconds)
+        active_count = sum(1 for worker_info in active_workers.values() 
+                          if current_time - worker_info['last_heartbeat'] < 60)
+        
+        # Calculate total metrics
+        total_completed = sum(worker_info['tasks_completed'] for worker_info in active_workers.values())
+        total_cracked = sum(worker_info['passwords_cracked'] for worker_info in active_workers.values())
+        
+        status_data = {
+            "status": "running" if active_count > 0 else "idle",
+            "active_workers": active_count,
+            "total_workers": len(active_workers),
+            "queue_size": task_queue.qsize(),
             "active_tasks": len(active_tasks),
-            "completed_results": len(result_list)
-        })
+            "completed_tasks": total_completed,
+            "passwords_cracked": total_cracked,
+            "uptime": current_time - start_time if 'start_time' in globals() else 0
+        }
+        
+        return jsonify(status_data)
+    
     except Exception as e:
-        logger.error(f"Error in get_status: {e}")
-        return jsonify({
-            "active_workers": 0,
-            "pending_tasks": 0,
-            "active_tasks": 0,
-            "completed_results": 0,
-            "error": str(e)
-        })
+        logger.error(f"❌ Error getting status: {e}")
+        return jsonify({"status": "error", "message": str(e)})
+
+# Add at the top of the file
+start_time = time.time()
 
 @app.route("/", methods=["GET"])
 def index():
@@ -310,6 +320,94 @@ def reset_tasks():
         logger.error(f"Error in reset_tasks: {e}")
         return jsonify({"status": "failure", "reason": str(e)})
 
+@app.route("/load_demo_tasks", methods=["POST"])
+def load_demo_tasks():
+    """Load demo tasks from GUI"""
+    try:
+        data = request.json
+        tasks = data.get('tasks', [])
+        
+        if not tasks:
+            return jsonify({"status": "failure", "reason": "no tasks provided"})
+        
+        # Clear existing tasks
+        global task_queue, active_tasks, target_hashes
+        with queue_lock:
+            while not task_queue.empty():
+                task_queue.get()
+            active_tasks.clear()
+            target_hashes.clear()
+        
+        # Add demo tasks to queue
+        task_count = 0
+        for task in tasks:
+            target_hash = task.get('target_hash')
+            candidates = task.get('candidates', [])
+            
+            if target_hash and candidates:
+                target_hashes.append(target_hash)
+                
+                # Split candidates into batches
+                for i in range(0, len(candidates), TASK_BATCH_SIZE):
+                    batch = candidates[i:i + TASK_BATCH_SIZE]
+                    task_data = {
+                        "task_id": task_count,
+                        "target_hash": target_hash,
+                        "candidates": batch
+                    }
+                    task_queue.put(task_data)
+                    task_count += 1
+        
+        logger.info(f"📋 Loaded {task_count} demo tasks into queue")
+        return jsonify({"status": "success", "tasks_loaded": task_count})
+        
+    except Exception as e:
+        logger.error(f"❌ Error loading demo tasks: {e}")
+        return jsonify({"status": "failure", "reason": str(e)})
+
+@app.route("/load_custom_task", methods=["POST"])
+def load_custom_task():
+    """Load a single custom task from GUI"""
+    try:
+        data = request.json
+        task = data.get('task')
+        
+        if not task:
+            return jsonify({"status": "failure", "reason": "no task provided"})
+        
+        target_hash = task.get('target_hash')
+        candidates = task.get('candidates', [])
+        
+        if not target_hash or not candidates:
+            return jsonify({"status": "failure", "reason": "invalid task data"})
+        
+        # Add to target hashes if not already present
+        global target_hashes
+        if target_hash not in target_hashes:
+            target_hashes.append(target_hash)
+        
+        # Split candidates into batches and add to queue
+        task_count = 0
+        base_task_id = len(active_tasks) + task_queue.qsize()
+        
+        with queue_lock:
+            for i in range(0, len(candidates), TASK_BATCH_SIZE):
+                batch = candidates[i:i + TASK_BATCH_SIZE]
+                task_data = {
+                    "task_id": base_task_id + task_count,
+                    "target_hash": target_hash,
+                    "candidates": batch
+                }
+                task_queue.put(task_data)
+                task_count += 1
+        
+        logger.info(f"📋 Loaded custom task with {task_count} batches into queue")
+        return jsonify({"status": "success", "tasks_loaded": task_count})
+        
+    except Exception as e:
+        logger.error(f"❌ Error loading custom task: {e}")
+        return jsonify({"status": "failure", "reason": str(e)})
+
 def create_tasks_for_hash(target_hash, wordlist_path="data/password.txt"):
     """Create tasks for a specific hash"""
     try:
@@ -328,6 +426,25 @@ def create_tasks_for_hash(target_hash, wordlist_path="data/password.txt"):
         }
         task_queue.put(task)
         task_id += 1
+
+@app.route("/results", methods=["GET"])
+def get_results():
+    """Get all cracking results"""
+    try:
+        results = []
+        for task_id, password, worker_id, processing_time in result_list:
+            results.append({
+                'task_id': task_id,
+                'cracked_password': password,
+                'worker_id': worker_id,
+                'processing_time': processing_time
+            })
+        
+        return jsonify({"results": results})
+        
+    except Exception as e:
+        logger.error(f"❌ Error getting results: {e}")
+        return jsonify({"results": []})
 
 if __name__ == "__main__":
     try:
