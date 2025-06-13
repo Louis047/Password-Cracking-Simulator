@@ -557,33 +557,46 @@ class CommercialPCSGUI:
     def start_demo_cracking(self):
         """Start demo mode password cracking"""
         try:
+            # Show loading indicator
+            loading = self.create_loading_indicator(self.content_frame, "Starting Demo Mode...")
             self.log_message("🎮 Starting Demo Mode...")
             self.crack_start_time = time.time()
             
             # Set worker count to 5 for demo
             self.launcher.target_workers = 5
             
-            # Start the system
-            if self.launcher.start_master():
-                self.log_message("✅ Master node started successfully")
-                
-                # Start 5 workers for demo
-                self.launcher.start_workers(5)
-                self.log_message("✅ 5 Worker nodes started for demo")
-                
-                # Load demo tasks
-                self.load_demo_tasks()
-                
-                self.is_running = True
-                self.demo_start_btn.config(text="🛑 Stop Demo", command=self.stop_system, bg='#f85149')
-                
-                # Start monitoring
-                self.start_monitoring()
-                
-                self.log_message("🎮 Demo mode is now running!")
-            else:
-                self.log_message("❌ Failed to start master node")
-                messagebox.showerror("Error", "Failed to start master node")
+            def start_process():
+                try:
+                    # Start the system
+                    if self.launcher.start_master():
+                        self.root.after(0, lambda: self.log_message("✅ Master node started successfully"))
+                        
+                        # Start 5 workers for demo
+                        self.launcher.start_workers(5)
+                        self.root.after(0, lambda: self.log_message("✅ 5 Worker nodes started for demo"))
+                        
+                        # Load demo tasks
+                        self.load_demo_tasks()
+                        
+                        self.is_running = True
+                        self.root.after(0, lambda: self.demo_start_btn.config(text="🛑 Stop Demo", command=self.stop_system, bg='#f85149'))
+                        
+                        # Start monitoring
+                        self.start_monitoring()
+                        
+                        self.root.after(0, lambda: self.log_message("🎮 Demo mode is now running!"))
+                    else:
+                        self.root.after(0, lambda: self.log_message("❌ Failed to start master node"))
+                        self.root.after(0, lambda: messagebox.showerror("Error", "Failed to start master node"))
+                except Exception as e:
+                    self.root.after(0, lambda: self.log_message(f"❌ Error starting demo: {e}"))
+                    self.root.after(0, lambda: messagebox.showerror("Error", f"Failed to start demo: {e}"))
+                finally:
+                    # Remove loading indicator
+                    self.root.after(0, loading.destroy)
+            
+            # Run in separate thread
+            threading.Thread(target=start_process, daemon=True).start()
         
         except Exception as e:
             self.log_message(f"❌ Error starting demo: {e}")
@@ -614,7 +627,43 @@ class CommercialPCSGUI:
                 self.log_message(f"✅ {worker_count} Worker nodes started")
                 
                 # Create custom task
-                self.create_custom_task(password)
+                def create_custom_task(self, password):
+                    """Create a custom task for the given password asynchronously"""
+                    def send_task():
+                        try:
+                            # Generate hash for the password
+                            target_hash = hashlib.sha256(password.encode('utf-8')).hexdigest()
+                            
+                            # Create candidate list (include the password and common passwords)
+                            candidates = self.demo_passwords.copy()
+                            if password not in candidates:
+                                candidates.append(password)
+                            
+                            # Shuffle to make it more realistic
+                            import random
+                            random.shuffle(candidates)
+                            
+                            task = {
+                                'task_id': 'custom_task_1',
+                                'target_hash': target_hash,
+                                'candidates': candidates,
+                                'original_password': password
+                            }
+                            
+                            # Send task to master
+                            response = requests.post(f"{MASTER_URL}/load_custom_task", 
+                                                   json={'task': task}, timeout=15)  # Increased timeout
+                            
+                            if response.status_code == 200:
+                                self.root.after(0, lambda: self.log_message(f"📋 Created custom task for password cracking"))
+                            else:
+                                self.root.after(0, lambda: self.log_message("❌ Failed to create custom task"))
+                        
+                        except Exception as e:
+                            self.root.after(0, lambda: self.log_message(f"❌ Error creating custom task: {e}"))
+                    
+                    # Run in separate thread
+                    threading.Thread(target=send_task, daemon=True).start()
                 
                 self.is_running = True
                 self.normal_start_btn.config(text="🛑 Stop Cracking", command=self.stop_system, bg='#f85149')
@@ -632,30 +681,34 @@ class CommercialPCSGUI:
             messagebox.showerror("Error", f"Failed to start normal mode: {e}")
     
     def load_demo_tasks(self):
-        """Load demo tasks into the master"""
-        try:
-            # Create tasks for demo passwords
-            demo_tasks = []
-            for i, (password, hash_val) in enumerate(zip(self.demo_passwords[:5], self.demo_hashes[:5])):
-                task = {
-                    'task_id': f'demo_task_{i+1}',
-                    'target_hash': hash_val,
-                    'candidates': self.demo_passwords,  # Use all passwords as candidates
-                    'original_password': password  # For demo tracking
-                }
-                demo_tasks.append(task)
+        """Load demo tasks into the master asynchronously"""
+        def send_tasks():
+            try:
+                # Create tasks for demo passwords
+                demo_tasks = []
+                for i, (password, hash_val) in enumerate(zip(self.demo_passwords[:5], self.demo_hashes[:5])):
+                    task = {
+                        'task_id': f'demo_task_{i+1}',
+                        'target_hash': hash_val,
+                        'candidates': self.demo_passwords,  # Use all passwords as candidates
+                        'original_password': password  # For demo tracking
+                    }
+                    demo_tasks.append(task)
+                
+                # Send tasks to master
+                response = requests.post(f"{MASTER_URL}/load_demo_tasks", 
+                                       json={'tasks': demo_tasks}, timeout=15)  # Increased timeout
+                
+                if response.status_code == 200:
+                    self.root.after(0, lambda: self.log_message(f"📋 Loaded {len(demo_tasks)} demo tasks"))
+                else:
+                    self.root.after(0, lambda: self.log_message("❌ Failed to load demo tasks"))
             
-            # Send tasks to master
-            response = requests.post(f"{MASTER_URL}/load_demo_tasks", 
-                                   json={'tasks': demo_tasks}, timeout=10)
-            
-            if response.status_code == 200:
-                self.log_message(f"📋 Loaded {len(demo_tasks)} demo tasks")
-            else:
-                self.log_message("❌ Failed to load demo tasks")
+            except Exception as e:
+                self.root.after(0, lambda: self.log_message(f"❌ Error loading demo tasks: {e}"))
         
-        except Exception as e:
-            self.log_message(f"❌ Error loading demo tasks: {e}")
+        # Run in separate thread
+        threading.Thread(target=send_tasks, daemon=True).start()
     
     def create_custom_task(self, password):
         """Create a custom task for the given password"""
@@ -699,60 +752,84 @@ class CommercialPCSGUI:
     
     def monitor_system(self):
         """Enhanced monitoring with detailed worker tracking"""
+        update_interval = 2  # Update every 2 seconds instead of 1
+        metrics_counter = 0
+        worker_counter = 0
+        results_counter = 0
+        
         while not self.stop_monitoring and self.is_running:
             try:
-                # Update metrics
-                self.update_metrics()
+                current_time = time.time()
                 
-                # Update worker performance
-                self.update_worker_performance()
+                # Update metrics every 2 seconds
+                if metrics_counter <= 0:
+                    self.update_metrics()
+                    metrics_counter = 2
                 
-                # Check for results
-                self.check_results()
+                # Update worker performance every 3 seconds
+                if worker_counter <= 0:
+                    self.update_worker_performance()
+                    worker_counter = 3
                 
-                time.sleep(1)  # Update every second for real-time feel
+                # Check for results every 1 second
+                if results_counter <= 0:
+                    self.check_results()
+                    results_counter = 1
+                
+                # Decrement counters
+                metrics_counter -= 1
+                worker_counter -= 1
+                results_counter -= 1
+                
+                time.sleep(1)
             
             except Exception as e:
                 self.root.after(0, self.log_message, f"⚠️ Monitoring error: {e}")
                 time.sleep(5)
     
     def update_metrics(self):
-        """Update top-level metrics"""
-        try:
-            # Get system status
-            response = requests.get(f"{MASTER_URL}/status", timeout=5)
-            if response.status_code == 200:
-                status = response.json()
-                
-                # Update metric cards
-                self.root.after(0, self.active_workers_metric.config, 
-                               {'text': str(status.get('active_workers', 0))})
-                self.root.after(0, self.tasks_completed_metric.config, 
-                               {'text': str(status.get('completed_tasks', 0))})
-                self.root.after(0, self.passwords_cracked_metric.config, 
-                               {'text': str(status.get('passwords_cracked', 0))})
-                
-                # Update elapsed time
-                if self.crack_start_time:
-                    elapsed = time.time() - self.crack_start_time
-                    elapsed_str = f"{int(elapsed//60):02d}:{int(elapsed%60):02d}"
-                    self.root.after(0, self.elapsed_time_metric.config, {'text': elapsed_str})
+        """Update top-level metrics asynchronously"""
+        def fetch_metrics():
+            try:
+                # Get system status
+                response = requests.get(f"{MASTER_URL}/status", timeout=5)
+                if response.status_code == 200:
+                    status = response.json()
+                    
+                    # Update metric cards using after method for thread safety
+                    self.root.after(0, lambda: self.active_workers_metric.config(
+                                   text=str(status.get('active_workers', 0))))
+                    self.root.after(0, lambda: self.tasks_completed_metric.config(
+                                   text=str(status.get('completed_tasks', 0))))
+                    self.root.after(0, lambda: self.passwords_cracked_metric.config(
+                                   text=str(status.get('passwords_cracked', 0))))
+                    
+                    # Update elapsed time
+                    if self.crack_start_time:
+                        elapsed = time.time() - self.crack_start_time
+                        elapsed_str = f"{int(elapsed//60):02d}:{int(elapsed%60):02d}"
+                        self.root.after(0, lambda: self.elapsed_time_metric.config(text=elapsed_str))
+            
+            except Exception as e:
+                self.root.after(0, self.log_message, f"Metrics update error: {e}")
         
-        except Exception as e:
-            pass  # Silently handle connection errors
+        # Run in separate thread
+        threading.Thread(target=fetch_metrics, daemon=True).start()
     
     def update_worker_performance(self):
-        """Update worker performance table"""
-        try:
-            response = requests.get(f"{MASTER_URL}/worker_stats", timeout=5)
-            if response.status_code == 200:
-                workers_data = response.json()
-                
-                # Update worker tree
-                self.root.after(0, self.refresh_worker_tree, workers_data)
+        """Update worker performance table asynchronously"""
+        def fetch_worker_data():
+            try:
+                response = requests.get(f"{MASTER_URL}/worker_stats", timeout=5)
+                if response.status_code == 200:
+                    workers_data = response.json()
+                    # Update worker tree in UI thread
+                    self.root.after(0, lambda: self.refresh_worker_tree(workers_data))
+            except Exception as e:
+                pass  # Silently handle connection errors
         
-        except Exception as e:
-            pass  # Silently handle connection errors
+        # Run in separate thread
+        threading.Thread(target=fetch_worker_data, daemon=True).start()
     
     def refresh_worker_tree(self, workers_data):
         """Refresh the worker performance tree"""
@@ -793,29 +870,32 @@ class CommercialPCSGUI:
             self.log_message(f"❌ Error updating worker tree: {e}")
     
     def check_results(self):
-        """Check for new cracking results"""
-        try:
-            response = requests.get(f"{MASTER_URL}/results", timeout=5)
-            if response.status_code == 200:
-                results_data = response.json()
-                
-                # Process new results
-                for result in results_data.get('results', []):
-                    if len(result) >= 4:
-                        task_id, password, worker_id, proc_time = result
-                        worker_short = worker_id[-8:] if worker_id else "unknown"
-                        
-                        result_text = f"[{datetime.now().strftime('%H:%M:%S')}] 🎯 Task {task_id}: Password '{password}' cracked by Worker {worker_short} in {proc_time:.2f}s\n"
-                        
-                        # Add to results display
-                        self.root.after(0, self.add_result, result_text)
-                        
-                        # Log the result
-                        self.root.after(0, self.log_message, 
-                                       f"🎯 Password '{password}' cracked by Worker {worker_short} in {proc_time:.2f}s")
+        """Check for new cracking results asynchronously"""
+        def fetch_results():
+            try:
+                response = requests.get(f"{MASTER_URL}/results", timeout=5)
+                if response.status_code == 200:
+                    results_data = response.json()
+                    
+                    # Process new results
+                    for result in results_data.get('results', []):
+                        if len(result) >= 4:
+                            task_id, password, worker_id, proc_time = result
+                            worker_short = worker_id[-8:] if worker_id else "unknown"
+                            
+                            result_text = f"[{datetime.now().strftime('%H:%M:%S')}] 🎯 Task {task_id}: Password '{password}' cracked by Worker {worker_short} in {proc_time:.2f}s\n"
+                            
+                            # Add to results display in UI thread
+                            self.root.after(0, lambda t=result_text: self.add_result(t))
+                            
+                            # Log the result
+                            self.root.after(0, lambda t=result_text: self.log_message(
+                                           f"🎯 Password '{password}' cracked by Worker {worker_short} in {proc_time:.2f}s"))
+            except Exception as e:
+                pass  # Silently handle connection errors
         
-        except Exception as e:
-            pass  # Silently handle connection errors
+        # Run in separate thread
+        threading.Thread(target=fetch_results, daemon=True).start()
     
     def add_result(self, result_text):
         """Add result to results display"""
@@ -899,3 +979,31 @@ class CommercialPCSGUI:
 if __name__ == "__main__":
     app = CommercialPCSGUI()
     app.run()
+
+
+def create_loading_indicator(self, parent, text="Loading..."):
+    """Create a loading indicator overlay"""
+    overlay = tk.Frame(parent, bg='#0d1117', bd=0)
+    overlay.place(relx=0.5, rely=0.5, anchor='center')
+    
+    # Spinner animation using Unicode characters
+    spinner_label = tk.Label(overlay, text="⣾", font=('Segoe UI', 24), bg='#0d1117', fg='#58a6ff')
+    spinner_label.pack(pady=(0, 10))
+    
+    # Loading text
+    loading_label = tk.Label(overlay, text=text, font=('Segoe UI', 12), bg='#0d1117', fg='#8b949e')
+    loading_label.pack()
+    
+    # Animate spinner
+    spinner_chars = ["⣾", "⣽", "⣻", "⢿", "⡿", "⣟", "⣯", "⣷"]
+    spinner_idx = 0
+    
+    def update_spinner():
+        nonlocal spinner_idx
+        if overlay.winfo_exists():
+            spinner_idx = (spinner_idx + 1) % len(spinner_chars)
+            spinner_label.config(text=spinner_chars[spinner_idx])
+            overlay.after(100, update_spinner)
+    
+    update_spinner()
+    return overlay
