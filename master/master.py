@@ -1,10 +1,14 @@
 from flask import Flask, request, jsonify
 import hashlib
 from queue import Queue
-from threading import Lock
+from threading import Lock, Thread
 import os
 import time
 import sys
+from waitress import serve
+from collections import deque
+from threading import RLock
+import signal
 
 # Add parent directory to Python path for imports
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
@@ -15,17 +19,47 @@ from common.config import TASK_BATCH_SIZE, TASK_TIMEOUT, MASTER_HOST, MASTER_POR
 app = Flask(__name__)
 logger = get_logger("Master")
 
-task_queue = Queue()
+task_queue = deque()
 result_list = []
-queue_lock = Lock()
+queue_lock = RLock()
 target_hashes = []
 active_workers = {}  # worker_id: {last_heartbeat, tasks_completed, passwords_cracked, status}
 active_tasks = {}    # task_id: {worker_id, timestamp, task_data}
 worker_stats = {}    # worker_id: {total_tasks, total_cracked, avg_time}
 
+# Add new global variables
+is_initialized = False
+initialization_lock = RLock()
+
+# Add initialization function
+def initialize_master():
+    """Initialize the master node without loading tasks"""
+    global is_initialized, task_queue, result_list, queue_lock, target_hashes, active_workers, active_tasks, worker_stats, start_time
+    
+    with initialization_lock:
+        if is_initialized:
+            return
+        
+        # Initialize all state
+        task_queue = deque()
+        result_list = []
+        queue_lock = RLock()
+        target_hashes = []
+        active_workers = {}
+        active_tasks = {}
+        worker_stats = {}
+        start_time = time.time()
+        
+        is_initialized = True
+        logger.info("Master node initialized (no tasks loaded)")
+
 # Worker registration and health monitoring
 @app.route("/register_worker", methods=["POST"])
 def register_worker():
+    """Register a new worker"""
+    # Ensure master is initialized
+    initialize_master()
+    
     try:
         data = request.json
         worker_id = data.get("worker_id")
@@ -52,6 +86,10 @@ def register_worker():
 
 @app.route("/heartbeat", methods=["POST"])
 def heartbeat():
+    """Update worker heartbeat"""
+    # Ensure master is initialized
+    initialize_master()
+    
     try:
         data = request.json
         worker_id = data.get("worker_id")
@@ -86,7 +124,7 @@ def check_task_timeouts():
     # Handle expired tasks
     for task_id in expired_tasks:
         task_info = active_tasks.pop(task_id)
-        task_queue.put(task_info['task_data'])  # Re-queue the task
+        task_queue.append(task_info['task_data'])  # Re-queue the task
         logger.warning(f"⏰ Task {task_id} timed out from worker {task_info['worker_id']}, re-queued")
     
     # Check for failed workers (no heartbeat for 2 minutes)
@@ -113,6 +151,7 @@ def load_hashes(filepath="data/hashes.txt"):
         return []
 
 def prepare_tasks(wordlist_path="data/password.txt"):
+    """Prepare initial tasks - only used for normal mode"""
     global target_hashes
     target_hashes = load_hashes()
     
@@ -133,40 +172,69 @@ def prepare_tasks(wordlist_path="data/password.txt"):
     
     task_id = 0
     for target_hash in target_hashes:
-        for i in range(0, len(passwords), TASK_BATCH_SIZE):
-            batch = passwords[i:i + TASK_BATCH_SIZE]
+        # Use larger batches for better performance
+        batch_size = min(TASK_BATCH_SIZE, 200)  # Increased batch size
+        for i in range(0, len(passwords), batch_size):
+            batch = passwords[i:i + batch_size]
             task = {
                 "task_id": task_id,
                 "target_hash": target_hash,
                 "candidates": batch
             }
-            task_queue.put(task)
+            add_task_to_queue(task)
             task_id += 1
     
-    logger.info(f"Loaded {task_queue.qsize()} tasks into the queue")
+    logger.info(f"Loaded {len(task_queue)} tasks into the queue")
 
+# Add new task management functions
+def add_task_to_queue(task):
+    """Add a task to the queue with minimal locking"""
+    with queue_lock:
+        task_queue.append(task)
+
+def get_task_from_queue():
+    """Get a task from the queue with minimal locking"""
+    with queue_lock:
+        if not task_queue:
+            return None
+        return task_queue.popleft()
+
+def clear_task_queue():
+    """Clear the task queue with minimal locking"""
+    with queue_lock:
+        task_queue.clear()
+
+# Modify the get_task endpoint to use the new functions
 @app.route("/get_task", methods=["GET"])
 def get_task():
+    """Get a task for a worker"""
+    # Ensure master is initialized
+    initialize_master()
+    
     check_task_timeouts()  # Check for expired tasks
     
     worker_id = request.args.get('worker_id')
     if not worker_id:
         return jsonify({"status": "failure", "reason": "worker_id required"})
     
-    with queue_lock:
-        if task_queue.empty():
-            return jsonify({"status": "no_tasks"})
-        
-        task = task_queue.get()
-        active_tasks[task['task_id']] = {
-            'worker_id': worker_id,
-            'timestamp': time.time(),
-            'task_data': task
-        }
-        return jsonify(task)
+    task = get_task_from_queue()
+    if not task:
+        return jsonify({"status": "no_tasks"})
+    
+    # Track active task without holding the queue lock
+    active_tasks[task['task_id']] = {
+        'worker_id': worker_id,
+        'timestamp': time.time(),
+        'task_data': task
+    }
+    return jsonify(task)
 
 @app.route("/submit_result", methods=["POST"])
 def submit_result():
+    """Submit a task result"""
+    # Ensure master is initialized
+    initialize_master()
+    
     try:
         data = request.json
         task_id = data.get("task_id")
@@ -197,29 +265,32 @@ def submit_result():
         
         return jsonify({"status": "failure", "reason": "invalid input"})
     except Exception as e:
-        logger.error(f"❌ Error in submit_result: {e}")
+        logger.error(f"❌ Error submitting result: {e}")
         return jsonify({"status": "failure", "reason": str(e)})
 
 @app.route("/worker_stats", methods=["GET"])
 def get_worker_stats():
-    """Get detailed worker statistics"""
+    """Get worker statistics"""
+    # Ensure master is initialized
+    initialize_master()
+    
     try:
         workers_list = []
         current_time = time.time()
         
         for worker_id, worker_info in active_workers.items():
-            worker_data = {
-                'worker_id': worker_id,
-                'status': worker_info['status'],
-                'tasks_completed': worker_info['tasks_completed'],
-                'passwords_cracked': worker_info['passwords_cracked'],
-                'last_heartbeat': worker_info['last_heartbeat'],
-                'avg_processing_time': worker_stats.get(worker_id, {}).get('avg_time', 0)
-            }
-            workers_list.append(worker_data)
+            if worker_id in worker_stats:
+                worker_data = {
+                    'worker_id': worker_id,
+                    'status': worker_info['status'],
+                    'tasks_completed': worker_info['tasks_completed'],
+                    'passwords_cracked': worker_info['passwords_cracked'],
+                    'last_heartbeat': worker_info['last_heartbeat'],
+                    'avg_processing_time': worker_stats[worker_id]['avg_time']
+                }
+                workers_list.append(worker_data)
         
         return jsonify({"workers": workers_list})
-    
     except Exception as e:
         logger.error(f"❌ Error getting worker stats: {e}")
         return jsonify({"workers": []})
@@ -227,31 +298,25 @@ def get_worker_stats():
 # Add to the existing status endpoint
 @app.route("/status", methods=["GET"])
 def get_status():
-    """Enhanced status endpoint with more metrics"""
+    """Get system status"""
+    # Ensure master is initialized
+    initialize_master()
+    
     try:
-        current_time = time.time()
+        active_count = sum(1 for w in active_workers.values() if w['status'] == 'active')
+        total_completed = sum(w['tasks_completed'] for w in active_workers.values())
+        total_cracked = sum(w['passwords_cracked'] for w in active_workers.values())
         
-        # Count active workers (heartbeat within last 60 seconds)
-        active_count = sum(1 for worker_info in active_workers.values() 
-                          if current_time - worker_info['last_heartbeat'] < 60)
-        
-        # Calculate total metrics
-        total_completed = sum(worker_info['tasks_completed'] for worker_info in active_workers.values())
-        total_cracked = sum(worker_info['passwords_cracked'] for worker_info in active_workers.values())
-        
-        status_data = {
-            "status": "running" if active_count > 0 else "idle",
+        return jsonify({
+            "status": "running",
+            "uptime": time.time() - start_time,
             "active_workers": active_count,
             "total_workers": len(active_workers),
-            "queue_size": task_queue.qsize(),
+            "queue_size": len(task_queue),
             "active_tasks": len(active_tasks),
             "completed_tasks": total_completed,
-            "passwords_cracked": total_cracked,
-            "uptime": current_time - start_time if 'start_time' in globals() else 0
-        }
-        
-        return jsonify(status_data)
-    
+            "cracked_passwords": total_cracked
+        })
     except Exception as e:
         logger.error(f"❌ Error getting status: {e}")
         return jsonify({"status": "error", "message": str(e)})
@@ -300,16 +365,15 @@ def clear_results():
         logger.error(f"Error in clear_results: {e}")
         return jsonify({"status": "failure", "reason": str(e)})
 
+# Modify reset_tasks to use the new functions
 @app.route("/reset_tasks", methods=["POST"])
 def reset_tasks():
     try:
-        global task_queue, active_tasks, target_hashes
-        with queue_lock:
-            # Clear existing tasks
-            while not task_queue.empty():
-                task_queue.get()
-            active_tasks.clear()
-            target_hashes.clear()
+        global active_tasks, target_hashes
+        # Clear state without holding locks
+        active_tasks.clear()
+        target_hashes.clear()
+        clear_task_queue()
         
         # Reload default tasks
         prepare_tasks()
@@ -320,25 +384,30 @@ def reset_tasks():
         logger.error(f"Error in reset_tasks: {e}")
         return jsonify({"status": "failure", "reason": str(e)})
 
+# Modify the load_demo_tasks endpoint to ensure initialization
 @app.route("/load_demo_tasks", methods=["POST"])
 def load_demo_tasks():
     """Load demo tasks from GUI"""
     try:
+        # Ensure master is initialized
+        initialize_master()
+        
         data = request.json
         tasks = data.get('tasks', [])
         
         if not tasks:
             return jsonify({"status": "failure", "reason": "no tasks provided"})
         
-        # Clear existing tasks
-        global task_queue, active_tasks, target_hashes
-        with queue_lock:
-            while not task_queue.empty():
-                task_queue.get()
-            active_tasks.clear()
-            target_hashes.clear()
+        # Clear existing tasks and reset state
+        global active_tasks, target_hashes, result_list
         
-        # Add demo tasks to queue
+        # Clear state without holding locks
+        active_tasks.clear()
+        target_hashes.clear()
+        result_list.clear()
+        clear_task_queue()
+        
+        # Add demo tasks to queue with minimal locking
         task_count = 0
         for task in tasks:
             target_hash = task.get('target_hash')
@@ -347,15 +416,16 @@ def load_demo_tasks():
             if target_hash and candidates:
                 target_hashes.append(target_hash)
                 
-                # Split candidates into batches
-                for i in range(0, len(candidates), TASK_BATCH_SIZE):
-                    batch = candidates[i:i + TASK_BATCH_SIZE]
+                # Use larger batches for better performance
+                batch_size = min(TASK_BATCH_SIZE, 200)  # Increased batch size
+                for i in range(0, len(candidates), batch_size):
+                    batch = candidates[i:i + batch_size]
                     task_data = {
                         "task_id": task_count,
                         "target_hash": target_hash,
                         "candidates": batch
                     }
-                    task_queue.put(task_data)
+                    add_task_to_queue(task_data)
                     task_count += 1
         
         logger.info(f"📋 Loaded {task_count} demo tasks into queue")
@@ -365,10 +435,14 @@ def load_demo_tasks():
         logger.error(f"❌ Error loading demo tasks: {e}")
         return jsonify({"status": "failure", "reason": str(e)})
 
+# Modify the load_custom_task endpoint to ensure initialization
 @app.route("/load_custom_task", methods=["POST"])
 def load_custom_task():
     """Load a single custom task from GUI"""
     try:
+        # Ensure master is initialized
+        initialize_master()
+        
         data = request.json
         task = data.get('task')
         
@@ -388,18 +462,19 @@ def load_custom_task():
         
         # Split candidates into batches and add to queue
         task_count = 0
-        base_task_id = len(active_tasks) + task_queue.qsize()
+        base_task_id = len(active_tasks) + len(task_queue)
         
-        with queue_lock:
-            for i in range(0, len(candidates), TASK_BATCH_SIZE):
-                batch = candidates[i:i + TASK_BATCH_SIZE]
-                task_data = {
-                    "task_id": base_task_id + task_count,
-                    "target_hash": target_hash,
-                    "candidates": batch
-                }
-                task_queue.put(task_data)
-                task_count += 1
+        # Use larger batches for better performance
+        batch_size = min(TASK_BATCH_SIZE, 200)  # Increased batch size
+        for i in range(0, len(candidates), batch_size):
+            batch = candidates[i:i + batch_size]
+            task_data = {
+                "task_id": base_task_id + task_count,
+                "target_hash": target_hash,
+                "candidates": batch
+            }
+            add_task_to_queue(task_data)
+            task_count += 1
         
         logger.info(f"📋 Loaded custom task with {task_count} batches into queue")
         return jsonify({"status": "success", "tasks_loaded": task_count})
@@ -408,6 +483,7 @@ def load_custom_task():
         logger.error(f"❌ Error loading custom task: {e}")
         return jsonify({"status": "failure", "reason": str(e)})
 
+# Modify create_tasks_for_hash to use the new functions
 def create_tasks_for_hash(target_hash, wordlist_path="data/password.txt"):
     """Create tasks for a specific hash"""
     try:
@@ -416,49 +492,46 @@ def create_tasks_for_hash(target_hash, wordlist_path="data/password.txt"):
     except FileNotFoundError:
         passwords = ["password123", "admin", "123456", "qwerty", "letmein", "welcome"]
     
-    task_id = len(active_tasks) + task_queue.qsize()
-    for i in range(0, len(passwords), TASK_BATCH_SIZE):
-        batch = passwords[i:i + TASK_BATCH_SIZE]
+    task_id = len(active_tasks) + len(task_queue)
+    # Use larger batches for better performance
+    batch_size = min(TASK_BATCH_SIZE, 200)  # Increased batch size
+    for i in range(0, len(passwords), batch_size):
+        batch = passwords[i:i + batch_size]
         task = {
             "task_id": task_id,
             "target_hash": target_hash,
             "candidates": batch
         }
-        task_queue.put(task)
+        add_task_to_queue(task)
         task_id += 1
 
 @app.route("/results", methods=["GET"])
 def get_results():
     """Get all cracking results"""
+    # Ensure master is initialized
+    initialize_master()
+    
     try:
-        results = []
-        for task_id, password, worker_id, processing_time in result_list:
-            results.append({
-                'task_id': task_id,
-                'cracked_password': password,
-                'worker_id': worker_id,
-                'processing_time': processing_time
-            })
-        
-        return jsonify({"results": results})
-        
+        return jsonify({"results": result_list})
     except Exception as e:
         logger.error(f"❌ Error getting results: {e}")
         return jsonify({"results": []})
 
+def start_server():
+    """Start the Flask server using Waitress"""
+    logger.info(f"Starting on {MASTER_HOST}:{MASTER_PORT}")
+    serve(app, host=MASTER_HOST, port=MASTER_PORT, threads=8)
+
 if __name__ == "__main__":
-    try:
-        logger.info("Initializing Password Cracking Simulator Master Node")
-        logger.info(f"Starting on {MASTER_HOST}:{MASTER_PORT}")
-        
-        # Prepare tasks
-        prepare_tasks()
-        
-        logger.info("Master node ready to accept connections")
-        
-        # Start Flask app
-        app.run(host=MASTER_HOST, port=MASTER_PORT, debug=False, threaded=True)
-        
-    except Exception as e:
-        logger.error(f"Failed to start master node: {e}")
-        sys.exit(1)
+    logger.info("Initializing Password Cracking Simulator Master Node")
+    initialize_master()  # Initialize without loading tasks
+    start_server()  # Start the server
+
+# Add signal handler for graceful shutdown
+def signal_handler(signum, frame):
+    """Handle shutdown signals gracefully"""
+    logger.info("Received shutdown signal, stopping server...")
+    sys.exit(0)
+
+signal.signal(signal.SIGINT, signal_handler)
+signal.signal(signal.SIGTERM, signal_handler)

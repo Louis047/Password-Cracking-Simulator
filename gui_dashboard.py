@@ -705,7 +705,8 @@ class CommercialPCSGUI:
                     self.root.after(0, lambda: self.log_message("❌ Failed to load demo tasks"))
             
             except Exception as e:
-                self.root.after(0, lambda: self.log_message(f"❌ Error loading demo tasks: {e}"))
+                error_msg = str(e)  # Capture the error message
+                self.root.after(0, lambda msg=error_msg: self.log_message(f"❌ Error loading demo tasks: {msg}"))
         
         # Run in separate thread
         threading.Thread(target=send_tasks, daemon=True).start()
@@ -823,10 +824,17 @@ class CommercialPCSGUI:
                 response = requests.get(f"{MASTER_URL}/worker_stats", timeout=5)
                 if response.status_code == 200:
                     workers_data = response.json()
+                    if not isinstance(workers_data, dict) or 'workers' not in workers_data:
+                        self.log_message("❌ Invalid worker stats format")
+                        return
                     # Update worker tree in UI thread
                     self.root.after(0, lambda: self.refresh_worker_tree(workers_data))
+            except requests.exceptions.RequestException as e:
+                # Only log connection errors if system is running
+                if self.is_running:
+                    self.log_message(f"❌ Worker stats update error: {e}")
             except Exception as e:
-                pass  # Silently handle connection errors
+                self.log_message(f"❌ Error fetching worker stats: {e}")
         
         # Run in separate thread
         threading.Thread(target=fetch_worker_data, daemon=True).start()
@@ -839,27 +847,38 @@ class CommercialPCSGUI:
                 self.worker_tree.delete(item)
             
             # Add current worker data
-            for worker in workers_data.get('workers', []):
-                worker_id_short = worker['worker_id'][-12:]
-                status = worker['status']
-                tasks = worker['tasks_completed']
-                cracked = worker['passwords_cracked']
-                success_rate = f"{(cracked/max(tasks,1)*100):.1f}%" if tasks > 0 else "0%"
-                avg_time = f"{worker.get('avg_processing_time', 0):.2f}s"
-                last_seen = time.strftime("%H:%M:%S", time.localtime(worker['last_heartbeat']))
-                
-                # Color coding based on performance
-                tags = ()
-                if status == 'active' and cracked > 0:
-                    tags = ('high_performer',)
-                elif status == 'active':
-                    tags = ('active',)
-                else:
-                    tags = ('inactive',)
-                
-                self.worker_tree.insert('', 'end', 
-                    values=(worker_id_short, status, tasks, cracked, success_rate, avg_time, last_seen),
-                    tags=tags)
+            workers = workers_data.get('workers', [])
+            if not isinstance(workers, list):
+                self.log_message("❌ Invalid worker data format")
+                return
+            
+            for worker in workers:
+                try:
+                    # Extract worker data with safe defaults
+                    worker_id = str(worker.get('worker_id', 'unknown'))
+                    worker_id_short = worker_id[-12:] if len(worker_id) > 12 else worker_id
+                    status = str(worker.get('status', 'unknown'))
+                    tasks = int(worker.get('tasks_completed', 0))
+                    cracked = int(worker.get('passwords_cracked', 0))
+                    success_rate = f"{(cracked/max(tasks,1)*100):.1f}%" if tasks > 0 else "0%"
+                    avg_time = f"{float(worker.get('avg_processing_time', 0)):.2f}s"
+                    last_seen = time.strftime("%H:%M:%S", time.localtime(float(worker.get('last_heartbeat', time.time()))))
+                    
+                    # Color coding based on performance
+                    tags = ()
+                    if status == 'active' and cracked > 0:
+                        tags = ('high_performer',)
+                    elif status == 'active':
+                        tags = ('active',)
+                    else:
+                        tags = ('inactive',)
+                    
+                    self.worker_tree.insert('', 'end', 
+                        values=(worker_id_short, status, tasks, cracked, success_rate, avg_time, last_seen),
+                        tags=tags)
+                except Exception as e:
+                    self.log_message(f"❌ Error processing worker data: {e}")
+                    continue
             
             # Configure tag colors
             self.worker_tree.tag_configure('high_performer', foreground='#3fb950')
@@ -958,14 +977,6 @@ class CommercialPCSGUI:
         y = (self.root.winfo_screenheight() // 2) - (self.root.winfo_height() // 2)
         self.root.geometry(f"+{x}+{y}")
     
-    def run(self):
-        """Start the GUI application"""
-        try:
-            self.root.protocol("WM_DELETE_WINDOW", self.on_closing)
-            self.root.mainloop()
-        except Exception as e:
-            self.logger.error(f"GUI Error: {e}")
-    
     def on_closing(self):
         """Handle application closing"""
         if self.is_running:
@@ -976,34 +987,41 @@ class CommercialPCSGUI:
         else:
             self.root.destroy()
 
+    def create_loading_indicator(self, parent, text="Loading..."):
+        """Create a loading indicator overlay"""
+        overlay = tk.Frame(parent, bg='#0d1117', bd=0)
+        overlay.place(relx=0.5, rely=0.5, anchor='center')
+        
+        # Spinner animation using Unicode characters
+        spinner_label = tk.Label(overlay, text="⣾", font=('Segoe UI', 24), bg='#0d1117', fg='#58a6ff')
+        spinner_label.pack(pady=(0, 10))
+        
+        # Loading text
+        loading_label = tk.Label(overlay, text=text, font=('Segoe UI', 12), bg='#0d1117', fg='#8b949e')
+        loading_label.pack()
+        
+        # Animate spinner
+        spinner_chars = ["⣾", "⣽", "⣻", "⢿", "⡿", "⣟", "⣯", "⣷"]
+        spinner_idx = 0
+        
+        def update_spinner():
+            nonlocal spinner_idx
+            if overlay.winfo_exists():
+                spinner_idx = (spinner_idx + 1) % len(spinner_chars)
+                spinner_label.config(text=spinner_chars[spinner_idx])
+                overlay.after(100, update_spinner)
+        
+        update_spinner()
+        return overlay
+
+    def run(self):
+        """Start the GUI application"""
+        try:
+            self.root.protocol("WM_DELETE_WINDOW", self.on_closing)
+            self.root.mainloop()
+        except Exception as e:
+            self.logger.error(f"GUI Error: {e}")
+
 if __name__ == "__main__":
     app = CommercialPCSGUI()
     app.run()
-
-
-def create_loading_indicator(self, parent, text="Loading..."):
-    """Create a loading indicator overlay"""
-    overlay = tk.Frame(parent, bg='#0d1117', bd=0)
-    overlay.place(relx=0.5, rely=0.5, anchor='center')
-    
-    # Spinner animation using Unicode characters
-    spinner_label = tk.Label(overlay, text="⣾", font=('Segoe UI', 24), bg='#0d1117', fg='#58a6ff')
-    spinner_label.pack(pady=(0, 10))
-    
-    # Loading text
-    loading_label = tk.Label(overlay, text=text, font=('Segoe UI', 12), bg='#0d1117', fg='#8b949e')
-    loading_label.pack()
-    
-    # Animate spinner
-    spinner_chars = ["⣾", "⣽", "⣻", "⢿", "⡿", "⣟", "⣯", "⣷"]
-    spinner_idx = 0
-    
-    def update_spinner():
-        nonlocal spinner_idx
-        if overlay.winfo_exists():
-            spinner_idx = (spinner_idx + 1) % len(spinner_chars)
-            spinner_label.config(text=spinner_chars[spinner_idx])
-            overlay.after(100, update_spinner)
-    
-    update_spinner()
-    return overlay
