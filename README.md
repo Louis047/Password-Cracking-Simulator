@@ -43,7 +43,7 @@ The system follows a master-worker distributed architecture:
 
 1. **Clone the repository**
    ```bash
-   git clone https://github.com/yourusername/PCS.git
+   git clone https://github.com/Louis047/PCS.git
    cd PCS
    pip install -r requirements.txt
    ```
