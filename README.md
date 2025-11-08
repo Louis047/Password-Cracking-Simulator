@@ -3,7 +3,7 @@
 A lightweight and simplified simulator that demonstrates how password cracking can be accelerated using distributed systems principles. Built using Python and Flask, PCS uses a master-worker architecture to emulate real-world password cracking workflows—**ethically and safely** using only synthetic data.
 
 > [!NOTE]
-> This project is meant for educational purposes **ONLY** and should never be used for unethical purposes.
+> This project is meant for educational purposes **ONLY** and should never be used for unethical purposes. The main focus is to showcase the working of Distibuted System concept among different fields.
 
 ## Addressing Current System Issues
 
